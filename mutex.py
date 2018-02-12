@@ -1,4 +1,6 @@
 from random import Random
+from math import ceil, log
+from register import RWBit
 
 DEBUG = True
 DEBUG_SEED = 42
@@ -51,28 +53,42 @@ class Flipper(object):
         return [self.next() for i in range(length)]
 
 
-class SharedMemory(object):
-    """ Inits a shared memory consisting of a dictionary of registers """
-    def __init__(self, registers):
-        self.registers = registers
-
-class RWMemory(SharedMemory):
-    def __init__(self, registers):
-
-
 class Process(object):
-    def __init__(self):
+    """ Initialize a process with an associated shared memory object """
+    def __init__(self, name, sm):
         self.flipper = Flipper()
+        self.name = name
+        self.sm = sm
     
     def step():
         pass
 
+class Gadget(object):
+    def __init__(self, name, size):
+        self.name = name
+        self.registers = [RWBit() for i in range(size)]
 
-class Algorithm(object):
+    def 
+
+class FastMutexMemory(RWMemory):
+    def __init__(self, n):
+        self.num_gadgets = ceil(log(self.n))
+        self.num_reg_per_gadget = ceil(log(self.n))
+        for gadget in range(self.num_gadgets):
+            for reg in range(self.num_reg_per_gadget):
+                registers[(gadget, reg) 
+
+    def 
+
+
+
+class FastMutexAlgorithm(object):
     def __init__(self, n):
         self.n = n
         self.schedule = Schedule(n, stype = "OBL")
+        self.sm = self.initialize_shared_memory()
 
+if __name__ == '__main__':
+    FastMutexAlgorithm(100)
 
-    def 
 
