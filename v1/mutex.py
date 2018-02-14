@@ -1,6 +1,8 @@
 from random import Random
 from math import ceil, log
 from register import RWBit
+from memory import RWMemory
+import pprint
 
 DEBUG = True
 DEBUG_SEED = 42
@@ -68,27 +70,57 @@ class Gadget(object):
         self.name = name
         self.registers = [RWBit() for i in range(size)]
 
-    def 
-
 class FastMutexMemory(RWMemory):
     def __init__(self, n):
-        self.num_gadgets = ceil(log(self.n))
-        self.num_reg_per_gadget = ceil(log(self.n))
+        super(FastMutexMemory, self).__init__()
+        self.n = n
+        self.num_gadgets = int(ceil(log(self.n)))
+        self.num_reg_per_gadget = int(ceil(log(self.n)))
         for gadget in range(self.num_gadgets):
             for reg in range(self.num_reg_per_gadget):
-                registers[(gadget, reg) 
+                self.registers[(gadget, reg)] = RWBit()
 
-    def 
 
+    def matrix_map(self, f):
+        """ map function f applied to each register to a matrix.
+        """
+        mat = []
+        for gadget in range(self.num_gadgets):
+            gadget = []
+            for reg in range(self.num_reg_per_gadget):
+                gadget.append(self.registers[(gadget, reg)].f())
+            mat.append(gadget)
+        return mat
+
+    def get_state_matrix(self):
+        return self.matrix_map(read)
+
+    def get_writer_matrix(self):
+
+    
+    def __repr__(self):
+        return "FastMutexAlgorithmMemory"
+    
+    def __str__(self):
+        s = ""
+        for gadget in range(self.num_gadgets):
+            for reg in range(self.num_reg_per_gadget):
+                s += str(self.registers[(gadget, reg)].read())
+            s += "\n"
+        return s
 
 
 class FastMutexAlgorithm(object):
     def __init__(self, n):
         self.n = n
         self.schedule = Schedule(n, stype = "OBL")
-        self.sm = self.initialize_shared_memory()
+        self.sm = FastMutexMemory(n)
+
 
 if __name__ == '__main__':
-    FastMutexAlgorithm(100)
+    pp = pprint.PrettyPrinter(indent=4)
+    alg = FastMutexAlgorithm(100)
+    print (alg.sm)
+
 
 

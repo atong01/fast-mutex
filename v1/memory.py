@@ -10,10 +10,10 @@ class SharedMemoryBase(object):
 
 class RWMemory(SharedMemoryBase):
     def __init__(self, registers = None):
-        super().__init__(registers)
+        super(RWMemory, self).__init__(registers)
 
     def read(addr, pname = None):
         return self.registers[addr].read()
     
-    def write(addr, value, pname = None)
+    def write(addr, value, pname = None):
         return self.registers[addr].write(value)
