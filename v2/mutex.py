@@ -118,13 +118,14 @@ class FastMutexAlgorithm(object):
 
         self.n        = n
         self.logn     = int(ceil(log(n, 2)))
-        self.gadgets  = self.logn * 2
+        self.gadgets  = 2 * self.logn
         self.reg_per_gadget = self.logn
         self.mem      = -1 * np.ones((self.gadgets, self.reg_per_gadget))
         self.writers  = -1 * np.ones((self.gadgets, self.reg_per_gadget))
         self.spinners = {i : { j : [] for j in range(self.reg_per_gadget) }
                 for i in range(self.gadgets)}
         self.proc_list = [Process(i, self.rand, self.gadgets, self.reg_per_gadget) for i in range(n)]
+
         #self.scheduler = SingleScheduler(self.proc_list, k = None)
         #self.scheduler = KRoundRobinScheduler(self.proc_list, k = None)
         self.scheduler = KRRRandomScheduler(self.proc_list, k = None)
@@ -161,7 +162,8 @@ class FastMutexAlgorithm(object):
             self.seek.remove(pnext)
             self.crit.add(pnext)
             if len(self.crit) > 1:
-                print("ERROR: multiple processes in critical section")
+                #print("ERROR: multiple processes in critical section")
+                pass
         if os == PState.CRIT and ns == PState.QUIET:
             self.crit.remove(pnext)
             self.quiet.add(pnext)
@@ -174,16 +176,16 @@ class FastMutexAlgorithm(object):
     def get_state_sets(self):
         return self.quiet, self.spin, self.seek, self.crit
 
-    def run(self, k = None):
+    def run(self, outfile, k = None):
         if k is None:
             k = self.n
         self.start(k)
-        f = open('out', 'w')
+        f = outfile
         for i in range (100000000):
             self.transition()
-            #f.write('{},{}\n'.format(i, len(self.quiet)))
             if len(self.quiet) == k:
                 print("Stopping after {} transitions, {} rounds, total rmr = {}, rmr per crit {}".format(i, i // k, self.rmr, self.rmr / self.n))
+                f.write('{},{},{},{}\n'.format(k, i // k, self.rmr, self.rmr / k))
                 return
 
 def interactive_main():
@@ -196,9 +198,12 @@ def interactive_main():
         a.transition()
 
 def main():
-    for i in range(100, 1500, 100):
-        a = FastMutexAlgorithm(i)
-        a.run()
+    f = open('results.csv', 'w')
+    f.write("Number of Processes, Number of Rounds, Total RMR, RMR per Critical Section\n")
+    for i in range(100, 2000, 25):
+        for j in range(10):
+            a = FastMutexAlgorithm(i)
+            a.run(f)
 
 if __name__ == '__main__':
     main()
