@@ -200,8 +200,8 @@ def interactive_main():
 def main():
     f = open('results.csv', 'w')
     f.write("Number of Processes, Number of Rounds, Total RMR, RMR per Critical Section\n")
-    for i in range(100, 2000, 25):
-        for j in range(10):
+    for i in range(1500, 2000, 100):
+        for j in range(1):
             a = FastMutexAlgorithm(i)
             a.run(f)
 
