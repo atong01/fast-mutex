@@ -1,37 +1,19 @@
 """
-Implements potential low space low RMR mutex algorithm
+Implements potential low space low RMR mutex algorithm.
 
-Input n processes.
-Model:
-    Oblivious adversary
-
+Notes:
+This algorithm doesn't actually perform mutual exclusion as the number of
+processes in the critical section is not enforced. This is fixable with an
+additional deterministic exclusion step.
 """
 
 from math import ceil, log
-import logging
-import numpy as np
 from enum import Enum
-from random import Random
+import numpy as np
 
-DEBUG = True
+from scheduler import *
+from randomizer import Randomizer
 
-class Randomizer(object):
-    def __init__(self, n, seed = None):
-        """ The randomizer must know n to produce the correct distribution """
-        self.seed = 42 if DEBUG else seed
-        self.random = Random(self.seed)
-        self.n = n
-        self.logn = int(ceil(log(n,2)))
-
-    def flip(self):
-        return self.random.randint(0,1) == 1 
-
-    def geometric(self):
-        """ Implements a clipped geometric distribution """
-        val = np.random.geometric(p=0.5)
-        if val >= self.logn:
-            val = self.logn - 1
-        return val
 
 class PState(Enum):
     QUIET = 0
@@ -41,62 +23,81 @@ class PState(Enum):
 
 class Process(object):
     """ The process class.
-
-    The 
-
+    
+    The transition diagram for a process
+    QUIET --> SEEK --> CRIT --> QUIET
+               ||
+              SPIN
     """
     def __init__(self, name, rand, num_gadgets, reg_per_gadget):
         self.name = name
         self.state = PState.QUIET
         self.loc = 0
         self.rand = rand
+        self.spin_loc = None
         self.num_gadgets = num_gadgets
         self.reg_per_gadget = reg_per_gadget
         self.history = []
-
-    def step(self):
-        print("Process" + self.name + "step")
-        if self.state == PState.QUIET:
-            print("Quiet state no action")
-        elif self.state == PState.SPIN:
-            pass
-
-    def flip(self):
-        return self.random.randint(0,1) == 1
 
     def step(self, shared_mem):
         """ Step performs a process step."""
         s = self.state
         if s == PState.QUIET:
-            return shared_mem, s
+            pass
         if s == PState.SPIN:
-            return shared_mem, s
+            if shared_mem[self.spin_loc] == -1:
+                # REVIEW (atong): This waking does not check registers of
+                # Higher index.
+                #print("Waking Proc: {}".format(self.name))
+                self.state = PState.SEEK
+                self.spin_loc = None
         if s == PState.SEEK:
-            return self.run_step(shared_mem), self.state
+            shared_mem = self.run_step(shared_mem)
         if s == PState.CRIT:
-            return self.exit_crit(shared_mem), self.state
+            shared_mem = self.exit_crit(shared_mem)
+        return shared_mem, self.state
 
     def run_step(self, shared_mem):
         toss = self.rand.flip()
         if toss:
             # Write
-            index_to_write = self.rand.geometric(p=0.5)
-            shared_mem[self.loc, index_to_write] = 1
+            index_to_write = self.rand.geometric(self.reg_per_gadget)
+            #print("Writing to ({},{})".format(self.loc, index_to_write))
+            shared_mem[self.loc, index_to_write] = self.name
             self.loc += 1
-            if loc == self.num_gadgets:
+            if self.loc == self.num_gadgets:
                 # We enter the critical section
                 self.state = PState.CRIT
+            #print (shared_mem)
         else:
             # Wait
             for i in range(self.reg_per_gadget):
-                if shared_mem[self.loc, i] == 1:
-                    self.state == PState.SPIN
-
-
-        print("ERROR run step not yet implemented")
+                if shared_mem[self.loc, i] > -1:
+                    #print("Waiting on ({},{})".format(self.loc, i))
+                    self.state = PState.SPIN
+                    self.spin_loc = (self.loc, i)
+                    break
+        return shared_mem
 
     def exit_crit(self, shared_mem):
-        print("ERROR exit crit not yet implemented")
+        """ Iterate backward over each gadget, if this process was the last one
+        to write to the register then reset all registers in that gadget.
+        """
+        for i in reversed(range(self.num_gadgets)):
+            do_reset_i = False
+            for j in range(self.reg_per_gadget):
+                if shared_mem[i,j] > -1 and shared_mem[i,j] == self.name:
+                    do_reset_i = True
+                    break
+            if not do_reset_i:
+                continue
+            #print("Proc: {} resetting gadget {}".format(self.name, i))
+            for j in range(self.reg_per_gadget):
+                shared_mem[i,j] = -1
+
+        self.state = PState.QUIET
+        self.loc   = 0
+        return shared_mem
 
     def __repr__(self):
         return "<Proc: {} State: {} Loc: {}>".format(
@@ -104,7 +105,6 @@ class Process(object):
 
     def __str__(self):
         return self.__repr__()
-
 
 class FastMutexAlgorithm(object):
     def __init__(self, n, seed = None):
@@ -116,40 +116,90 @@ class FastMutexAlgorithm(object):
         """
         self.rand = Randomizer(n, seed)
 
-        self.n = n
-        self.logn = int(ceil(log(n, 2)))
-        self.mem  = np.zeros((self.logn, self.logn))
-        self.writers = -1 * np.ones((self.logn, self.logn))
-        self.spinners = {i : { j : [] for j in range(self.logn) }
-                for i in range(self.logn)}
-        self.proc_list = [Process(i, self.rand) for i in range(n)]
-        self.schedule_history = []
+        self.n        = n
+        self.logn     = int(ceil(log(n, 2)))
+        self.gadgets  = self.logn * 2
+        self.reg_per_gadget = self.logn
+        self.mem      = -1 * np.ones((self.gadgets, self.reg_per_gadget))
+        self.writers  = -1 * np.ones((self.gadgets, self.reg_per_gadget))
+        self.spinners = {i : { j : [] for j in range(self.reg_per_gadget) }
+                for i in range(self.gadgets)}
+        self.proc_list = [Process(i, self.rand, self.gadgets, self.reg_per_gadget) for i in range(n)]
+        #self.scheduler = SingleScheduler(self.proc_list, k = None)
+        #self.scheduler = KRoundRobinScheduler(self.proc_list, k = None)
+        self.scheduler = KRRRandomScheduler(self.proc_list, k = None)
 
-    def schedule(self):
-        """ Schedule processes obliviously """
-        pnext = self.random.randrange(self.n)
-        self.schedule_history.append(pnext)
-        return self.proc_list[pnext]
+        self.quiet = set(self.proc_list)
+        self.spin = set()
+        self.seek = set()
+        self.crit = set()
+        self.rmr = 0
+
+    def start(self, k):
+        """ K quiet processes to SEEK state """
+        to_start = min(k, len(self.quiet))
+        print ("Starting {} processes".format(to_start))
+        for i in range(to_start):
+            p = self.quiet.pop()
+            p.state = PState.SEEK
+            self.seek.add(p)
 
     def transition(self):
-        pnext = self.schedule()
-        print("Transition: {}".format(pnext))
-        self.mem, new_state = pnext.step(self, mem)
-        if new_state == PState.SPIN:
-            i,j =  pnext.loc
+        pnext = self.scheduler.schedule()
+        os = pnext.state
+        self.mem, ns = pnext.step(self.mem)
+        #print("Transition: {} to {}".format(pnext, new_state))
+        if os == PState.SEEK and ns == PState.SPIN:
+            i,j =  pnext.spin_loc
             self.spinners[i][j].append(pnext)
+            self.seek.remove(pnext)
+            self.spin.add(pnext)
+        if os == PState.SPIN and ns == PState.SEEK:
+            self.spin.remove(pnext)
+            self.seek.add(pnext)
+        if os == PState.SEEK and ns == PState.CRIT:
+            self.seek.remove(pnext)
+            self.crit.add(pnext)
+            if len(self.crit) > 1:
+                print("ERROR: multiple processes in critical section")
+        if os == PState.CRIT and ns == PState.QUIET:
+            self.crit.remove(pnext)
+            self.quiet.add(pnext)
+            #print("Quiet set ".format(self.quiet))
+        if os == PState.SPIN and ns == PState.SPIN:
+            self.rmr += 0
+        else:
+            self.rmr += 1
 
-    def configuration(self):
-        pass
+    def get_state_sets(self):
+        return self.quiet, self.spin, self.seek, self.crit
+
+    def run(self, k = None):
+        if k is None:
+            k = self.n
+        self.start(k)
+        f = open('out', 'w')
+        for i in range (100000000):
+            self.transition()
+            #f.write('{},{}\n'.format(i, len(self.quiet)))
+            if len(self.quiet) == k:
+                print("Stopping after {} transitions, {} rounds, total rmr = {}, rmr per crit {}".format(i, i // k, self.rmr, self.rmr / self.n))
+                return
+
+def interactive_main():
+    #n = input("How many processes would you like?")
+    n = 10
+    a = FastMutexAlgorithm(n)
+    a.start(n)
+    while True:
+        contine_run = input("Step? ")
+        a.transition()
+
+def main():
+    for i in range(100, 1500, 100):
+        a = FastMutexAlgorithm(i)
+        a.run()
 
 if __name__ == '__main__':
-    a = FastMutexAlgorithm(100)
-    a.transition()
-    
-
-
-
-
-
-
-        
+    main()
+    #interactive_main()
